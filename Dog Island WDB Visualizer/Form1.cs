@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -16,7 +17,6 @@ namespace Dog_Island_WDB_Visualizer
         public Form1()
         {
             InitializeComponent();
-            comboBox1.SelectedIndex = 0;
         }
 
         private void openToolStripMenuItem_Click(object sender, EventArgs e)
@@ -26,34 +26,23 @@ namespace Dog_Island_WDB_Visualizer
             var result = dlg.ShowDialog();
             if (result != DialogResult.OK) return;
             CurrentFilePath = dlg.FileName;
-            Encoding enc = GetEncoding();
-            ParseFile(enc);
+            ParseFile();
         }
 
-        private void ParseFile(Encoding e)
+        private void ParseFile()
         {
             string[] text = new string[1];
             if (CurrentFilePath.EndsWith(".wds"))
             {
-                text = ParseWDSFile(CurrentFilePath, e);
+                text = ParseWDSFile(CurrentFilePath);
                 ColorizeText(text);
                 return;
             }
-            text = ParseWDBFile(CurrentFilePath, e);
+            text = ParseWDBFile(CurrentFilePath);
             ColorizeText(text);
         }
 
-        private Encoding GetEncoding()
-        {
-            switch (comboBox1.SelectedIndex)
-            {
-                case 0: return Encoding.ASCII;
-                case 1: return Encoding.GetEncoding("Shift_JIS");
-                default: return Encoding.ASCII;
-            }
-        }
-
-        private string[] ParseWDSFile(string filename, Encoding e)
+        private string[] ParseWDSFile(string filename)
         {
             List<string> lines = new List<string>();
             var fs = File.OpenRead(filename);
@@ -77,13 +66,13 @@ namespace Dog_Island_WDB_Visualizer
                     endOfDialog += dialogDataOffset;
                 }
                 fs.Seek(dialogOffset, SeekOrigin.Begin);
-                string dialog = e.GetString(ReadBytes(fs, endOfDialog - dialogOffset));
+                string dialog = Encoding.GetEncoding("Shift_JIS").GetString(ReadBytes(fs, endOfDialog - dialogOffset));
                 lines.Add(dialog);
             }
             return lines.ToArray();
         }
 
-        private string[] ParseWDBFile(string filename, Encoding e)
+        private string[] ParseWDBFile(string filename)
         {
             List<string> lines = new List<string>();
             var fs = File.OpenRead(filename);
@@ -100,9 +89,9 @@ namespace Dog_Island_WDB_Visualizer
                 int dialogTextOffset = BitConverter.ToInt32(ReadBytes(fs, 4), 0);
                 if (dialogTextOffset == -1) continue;
                 fs.Seek(dialogNameOffset, SeekOrigin.Begin);
-                string dialogName = ReadString(fs, e);
+                string dialogName = ReadString(fs);
                 fs.Seek(dialogTextOffset, SeekOrigin.Begin);
-                string dialogText = ReadString(fs, e);
+                string dialogText = ReadString(fs);
                 lines.Add(dialogName + "\n");
                 lines.Add(dialogText + "\n");
                 lines.Add("\n");
@@ -113,10 +102,12 @@ namespace Dog_Island_WDB_Visualizer
         public void ColorizeText(string[] lines)
         {
             richTextBox1.Clear();
+            string nullPattern= "\x00+";  // Match one or more consecutive null bytes
             foreach(string line in lines)
             {
+                string fixedLine = Regex.Replace(line, nullPattern, "\n");
                 string pattern = @"(#.*?#)";
-                string[] segments = Regex.Split(line, pattern);
+                string[] segments = Regex.Split(fixedLine, pattern);
                 Color currentColor = Color.Black;
 
                 foreach (string segment in segments)
@@ -128,6 +119,12 @@ namespace Dog_Island_WDB_Visualizer
                             case "#n#":
                                 richTextBox1.AppendText("\n");
                                 break;
+                            case "#c#":
+                                richTextBox1.AppendText("\n");
+                                break;
+                            case "#elder#":
+                                richTextBox1.AppendText("SIBLING");
+                                break;
                             case "#name#":
                                 richTextBox1.AppendText("NAME");
                                 break;
@@ -137,12 +134,12 @@ namespace Dog_Island_WDB_Visualizer
                                 currentColor = GetColor(colorName);
                                 break;
                         }
-                        
                     }
                     else
                     {
                         // Apply the current color to the regular text
                         richTextBox1.SelectionColor = currentColor;
+                        Console.WriteLine(segment);
                         richTextBox1.AppendText(segment);
                     }
                 }
@@ -172,22 +169,16 @@ namespace Dog_Island_WDB_Visualizer
             return buffer;
         }
 
-        public static string ReadString(FileStream fs, Encoding e)
+        public static string ReadString(FileStream fs)
         {
             string s = "";
             byte b = (byte)fs.ReadByte();
             while(b != 0x0)
             {
-                s += e.GetString(new byte[] { b });
+                s += Encoding.GetEncoding("Shift_JIS").GetString(new byte[] { b });
                 b = (byte)fs.ReadByte();
             }
             return s;
-        }
-
-        private void comboBox1_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            if (string.IsNullOrEmpty(CurrentFilePath)) return;
-            ParseFile(GetEncoding());
         }
     }
 }
