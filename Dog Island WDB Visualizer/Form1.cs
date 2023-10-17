@@ -81,6 +81,7 @@ namespace Dog_Island_WDB_Visualizer
                 int dialogNameOffset = BitConverter.ToInt32(ReadBytes(fs, 4), 0);
                 bool selectableLine = BitConverter.ToInt32(ReadBytes(fs, 4), 0) == 0xFFFF;
                 int dialogTextOffset = BitConverter.ToInt32(ReadBytes(fs, 4), 0);
+                if (dialogTextOffset == -1) continue;
                 fs.Seek(dialogNameOffset, SeekOrigin.Begin);
                 string dialogName = ReadString(fs, e);
                 fs.Seek(dialogTextOffset, SeekOrigin.Begin);
