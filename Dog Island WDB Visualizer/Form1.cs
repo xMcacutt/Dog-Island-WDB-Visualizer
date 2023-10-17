@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
@@ -57,12 +58,28 @@ namespace Dog_Island_WDB_Visualizer
             List<string> lines = new List<string>();
             var fs = File.OpenRead(filename);
             fs.Seek(0x4, SeekOrigin.Begin);
-            int dialogOffset = BitConverter.ToInt32(ReadBytes(fs, 4), 0);
-            fs.Seek(0x1C, SeekOrigin.Begin);
-            int dialogLength = BitConverter.ToInt32(ReadBytes(fs, 4), 0);
-            fs.Seek(dialogOffset, SeekOrigin.Begin);
-            string dialog = e.GetString(ReadBytes(fs, dialogLength));
-            lines.Add(dialog);
+            int dialogDataOffset = BitConverter.ToInt32(ReadBytes(fs, 4), 0);
+            int dialogCount = BitConverter.ToInt32(ReadBytes(fs, 4), 0);
+            for(int i = 0; i < dialogCount; i++)
+            {
+                fs.Seek(0x10 + 0x8 * i + 0x4, SeekOrigin.Begin);
+                int dialogOffset = BitConverter.ToInt32(ReadBytes(fs, 4), 0);
+                dialogOffset += dialogDataOffset;
+                int endOfDialog = 0;
+                if (i == dialogCount - 1)
+                {
+                    endOfDialog = (int)fs.Length;
+                }
+                else
+                {
+                    fs.Seek(0x4, SeekOrigin.Current);
+                    endOfDialog = BitConverter.ToInt32(ReadBytes(fs, 4), 0) - 1;
+                    endOfDialog += dialogDataOffset;
+                }
+                fs.Seek(dialogOffset, SeekOrigin.Begin);
+                string dialog = e.GetString(ReadBytes(fs, endOfDialog - dialogOffset));
+                lines.Add(dialog);
+            }
             return lines.ToArray();
         }
 
