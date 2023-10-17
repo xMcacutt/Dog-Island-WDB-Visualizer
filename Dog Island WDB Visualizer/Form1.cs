@@ -9,27 +9,70 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using static System.Net.Mime.MediaTypeNames;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.Window;
 
 namespace Dog_Island_WDB_Visualizer
 {
     public partial class Form1 : Form
     {
+        public static string CurrentFilePath;
+
         public Form1()
         {
             InitializeComponent();
+            comboBox1.SelectedIndex = 0;
         }
 
         private void openToolStripMenuItem_Click(object sender, EventArgs e)
         {
             OpenFileDialog dlg = new OpenFileDialog();
-            dlg.Filter = "WDB Files|*.wdb";
+            dlg.Filter = "WDB Files|*.wdb|WDS Files|*.wds";
             var result = dlg.ShowDialog();
             if (result != DialogResult.OK) return;
-            string[] text = ParseFile(dlg.FileName);
+            CurrentFilePath = dlg.FileName;
+            Encoding enc = GetEncoding();
+            ParseFile(enc);
+        }
+
+        private void ParseFile(Encoding e)
+        {
+            string[] text = new string[1];
+            if (CurrentFilePath.EndsWith(".wds"))
+            {
+                text = ParseWDSFile(CurrentFilePath, e);
+                ColorizeText(text);
+                return;
+            }
+            text = ParseWDBFile(CurrentFilePath, e);
             ColorizeText(text);
         }
 
-        private string[] ParseFile(string filename)
+        private Encoding GetEncoding()
+        {
+            switch (comboBox1.SelectedIndex)
+            {
+                case 0: return Encoding.ASCII;
+                case 1: return Encoding.GetEncoding("Shift_JIS");
+                default: return Encoding.ASCII;
+            }
+        }
+
+        private string[] ParseWDSFile(string filename, Encoding e)
+        {
+            List<string> lines = new List<string>();
+            var fs = File.OpenRead(filename);
+            fs.Seek(0x4, SeekOrigin.Begin);
+            int dialogOffset = BitConverter.ToInt32(ReadBytes(fs, 4), 0);
+            fs.Seek(0x1C, SeekOrigin.Begin);
+            int dialogLength = BitConverter.ToInt32(ReadBytes(fs, 4), 0);
+            fs.Seek(dialogOffset, SeekOrigin.Begin);
+            string dialog = e.GetString(ReadBytes(fs, dialogLength));
+            lines.Add(dialog);
+            return lines.ToArray();
+        }
+
+        private string[] ParseWDBFile(string filename, Encoding e)
         {
             List<string> lines = new List<string>();
             var fs = File.OpenRead(filename);
@@ -45,15 +88,9 @@ namespace Dog_Island_WDB_Visualizer
                 bool selectableLine = BitConverter.ToInt32(ReadBytes(fs, 4), 0) == 0xFFFF;
                 int dialogTextOffset = BitConverter.ToInt32(ReadBytes(fs, 4), 0);
                 fs.Seek(dialogNameOffset, SeekOrigin.Begin);
-                string dialogName = ReadString(fs);
-                Console.WriteLine(dialogName);
-                if (dialogTextOffset == -1)
-                {
-                    Console.WriteLine(dialogName);
-                    continue;
-                }
+                string dialogName = ReadString(fs, e);
                 fs.Seek(dialogTextOffset, SeekOrigin.Begin);
-                string dialogText = ReadString(fs);            
+                string dialogText = ReadString(fs, e);
                 lines.Add(dialogName + "\n");
                 lines.Add(dialogText + "\n");
                 lines.Add("\n");
@@ -123,16 +160,22 @@ namespace Dog_Island_WDB_Visualizer
             return buffer;
         }
 
-        public static string ReadString(FileStream fs)
+        public static string ReadString(FileStream fs, Encoding e)
         {
             string s = "";
             byte b = (byte)fs.ReadByte();
             while(b != 0x0)
             {
-                s += Encoding.ASCII.GetString(new byte[] { b });
+                s += e.GetString(new byte[] { b });
                 b = (byte)fs.ReadByte();
             }
             return s;
+        }
+
+        private void comboBox1_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (string.IsNullOrEmpty(CurrentFilePath)) return;
+            ParseFile(GetEncoding());
         }
     }
 }
