@@ -1,8 +1,12 @@
-﻿using System;
+﻿using Newtonsoft.Json;
+using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Media;
+using System.Net.Http;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -13,10 +17,40 @@ namespace Dog_Island_WDB_Visualizer
     public partial class Form1 : Form
     {
         public static string CurrentFilePath;
+        public static bool Translate = false;
+        private static readonly string key = "b5c8a9bfdd4e4a50bb5bdaeb095b8660";
+        private static readonly string endpoint = "https://api.cognitive.microsofttranslator.com";
+        private static readonly string location = "uksouth";
 
         public Form1()
         {
             InitializeComponent();
+            richTextBox1.AllowDrop = true;
+            richTextBox1.DragEnter += FileDrag;
+            richTextBox1.DragDrop += FileDrop;
+        }
+
+        private void FileDrag(object sender, DragEventArgs e)
+        {
+            // Check if the data being dragged is a file
+            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            {
+                e.Effect = DragDropEffects.Copy; // Change the cursor to indicate that the data can be copied
+            }
+            else
+            {
+                e.Effect = DragDropEffects.None; // Data not accepted
+            }
+        }
+
+        private void FileDrop(object sender,  DragEventArgs e)
+        {
+            string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
+
+            if (files.Length != 1) return;
+
+            CurrentFilePath = files[0];
+            ParseFile();
         }
 
         private void openToolStripMenuItem_Click(object sender, EventArgs e)
@@ -67,6 +101,8 @@ namespace Dog_Island_WDB_Visualizer
                 }
                 fs.Seek(dialogOffset, SeekOrigin.Begin);
                 string dialog = Encoding.GetEncoding("Shift_JIS").GetString(ReadBytes(fs, endOfDialog - dialogOffset));
+                if(Translate)
+                    dialog = TranslateText(dialog);
                 lines.Add(dialog);
             }
             return lines.ToArray();
@@ -87,7 +123,7 @@ namespace Dog_Island_WDB_Visualizer
                 int dialogNameOffset = BitConverter.ToInt32(ReadBytes(fs, 4), 0);
                 bool selectableLine = BitConverter.ToInt32(ReadBytes(fs, 4), 0) == 0xFFFF;
                 int dialogTextOffset = BitConverter.ToInt32(ReadBytes(fs, 4), 0);
-                if (dialogTextOffset == -1) continue;
+                if (dialogTextOffset == -1 || dialogNameOffset == -1) continue;
                 fs.Seek(dialogNameOffset, SeekOrigin.Begin);
                 string dialogName = ReadString(fs);
                 fs.Seek(dialogTextOffset, SeekOrigin.Begin);
@@ -144,6 +180,20 @@ namespace Dog_Island_WDB_Visualizer
                     }
                 }
             }
+            if (string.IsNullOrWhiteSpace(richTextBox1.Text))
+            {
+                try
+                {
+                    SoundPlayer player = new SoundPlayer("./wvoice_00025.wav");
+                    player.Play();
+                }
+                catch(Exception ex)
+                {
+                    Console.WriteLine($"Error playing alert sound: {ex.Message}");
+
+                }
+                MessageBox.Show("File does not contain text.");
+            }
         }
 
         private Color GetColor(string colorName)
@@ -173,12 +223,71 @@ namespace Dog_Island_WDB_Visualizer
         {
             string s = "";
             byte b = (byte)fs.ReadByte();
-            while(b != 0x0)
+            while(b != 0x0 && fs.Position < fs.Length)
             {
                 s += Encoding.GetEncoding("Shift_JIS").GetString(new byte[] { b });
                 b = (byte)fs.ReadByte();
             }
+            if (Translate)
+            {
+                s = TranslateText(s);
+            }
             return s;
         }
+
+        public static string TranslateText(string s)
+        {
+            string route = "/translate?api-version=3.0&from=ja&to=en";
+            object[] body = new object[] { new { Text = s } };
+            var requestBody = JsonConvert.SerializeObject(body);
+
+            using (var client = new HttpClient())
+            using (var request = new HttpRequestMessage())
+            {
+                // Build the request.
+                request.Method = HttpMethod.Post;
+                request.RequestUri = new Uri(endpoint + route);
+                request.Content = new StringContent(requestBody, Encoding.UTF8, "application/json");
+                request.Headers.Add("Ocp-Apim-Subscription-Key", key);
+                // location required if you're using a multi-service or regional (not global) resource.
+                request.Headers.Add("Ocp-Apim-Subscription-Region", location);
+
+                // Send the request and get response.
+                HttpResponseMessage response = client.SendAsync(request).Result;
+                // Read response as a string.
+                if (response.IsSuccessStatusCode)
+                {
+                    // Deserialize the JSON response
+                    var result = JsonConvert.DeserializeObject<List<TranslationResult>>(response.Content.ReadAsStringAsync().Result);
+
+                    // Extract the translated text
+                    string translatedText = result[0].translations[0].text;
+                    return translatedText;
+                }
+                else
+                {
+                    // Handle the error, e.g., log or throw an exception
+                    Console.WriteLine($"Error: {response.StatusCode} - {response.ReasonPhrase}");
+                    return null;
+                }
+            }
+        }
+
+        private void translateToggleClicked(object sender, EventArgs e)
+        {
+            Translate = !Translate;
+            translateToggle.Checked = Translate;
+        }
+    }
+
+    public class TranslationResult
+    {
+        public List<Translation> translations { get; set; }
+    }
+
+    public class Translation
+    {
+        public string text { get; set; }
+        public string to { get; set; }
     }
 }
